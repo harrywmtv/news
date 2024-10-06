@@ -1,6 +1,8 @@
 import feedparser
 from transformers import pipeline
 from flask import Flask, render_template, request
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+from werkzeug.serving import run_simple
 from datetime import datetime
 
 app = Flask(__name__)
@@ -84,3 +86,11 @@ def index():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+# For production with Gunicorn
+application = DispatcherMiddleware(
+    Flask('dummy_app'),  # Dummy app for root
+    {
+        '/news': app
+    }
+)
