@@ -1,0 +1,22 @@
+{% for item in headlines %}
+<tr>
+    <td>{{ item.index }}</td>
+    <td class="headline-cell">{{ item.headline | e }}</td> <!-- Ensure proper escaping -->
+    <td class="text-center">
+        <span
+          class="
+            {% if item.sentiment == 'Positive' %}
+                sentiment-positive
+            {% elif item.sentiment == 'Negative' %}
+                sentiment-negative
+            {% else %}
+                sentiment-neutral
+            {% endif %}
+          "
+        >
+            {{ item.sentiment }}
+        </span>
+    </td>
+    <td class="text-center confidence">{{ item.confidence | round(2) }}</td>
+</tr>
+{% endfor %}

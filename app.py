@@ -1,11 +1,18 @@
 import feedparser
 from transformers import pipeline
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.serving import run_simple
 from datetime import datetime
+import logging
 
 app = Flask(__name__)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Cache for feed entries
+feed_cache = {}
 
 # List of supported countries with their codes
 COUNTRIES = {
@@ -25,56 +32,58 @@ COUNTRIES = {
 # Initialize the sentiment analysis pipeline with FinBERT globally
 classifier = pipeline('sentiment-analysis', model='ProsusAI/finbert')
 
-def get_top_headlines_with_sentiment(country_code):
-    # Get the country parameters
-    country_params = COUNTRIES.get(country_code, COUNTRIES['United States'])
-    gl = country_params['gl']
-    hl = country_params['hl']
-    ceid = country_params['ceid']
+def get_top_headlines_with_sentiment(country_code, page=1, page_size=30):  # Changed from 20 to 30
+    cache_key = f"{country_code}"
+    
+    # Get or update feed cache
+    if cache_key not in feed_cache:
+        country_params = COUNTRIES.get(country_code, COUNTRIES['United States'])
+        gl, hl, ceid = country_params['gl'], country_params['hl'], country_params['ceid']
+        rss_url = f'https://news.google.com/rss?hl={hl}&gl={gl}&ceid={ceid}'
+        feed = feedparser.parse(rss_url)
+        if not feed.bozo and feed.entries:
+            feed_cache[cache_key] = feed.entries
+        else:
+            logging.error("Failed to parse RSS feed.")
+            return []
 
-    # URL of the Google News RSS feed for the selected country
-    rss_url = f'https://news.google.com/rss?hl={hl}&gl={gl}&ceid={ceid}'
-
-    # Parse the RSS feed
-    feed = feedparser.parse(rss_url)
-
-    # Check if the feed was successfully parsed
-    if feed.bozo:
-        print("Failed to parse RSS feed.")
+    entries = feed_cache[cache_key]
+    
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    if start_idx >= len(entries):
         return []
 
     headlines_with_sentiment = []
-
-    # Get the top 10 entries (headlines)
-    if feed.entries:
-        for idx, entry in enumerate(feed.entries[:10], start=1):
-            headline = entry.title
-            # Perform sentiment analysis
-            result = classifier(headline)[0]
+    
+    for idx, entry in enumerate(entries[start_idx:end_idx], start=start_idx + 1):
+        try:
+            result = classifier(entry.title)[0]
             sentiment = result['label']
             confidence = result['score']
-            # Map sentiment labels to Positive/Negative/Neutral
-            if sentiment == 'positive':
-                market_sentiment = 'Positive'
-            elif sentiment == 'negative':
-                market_sentiment = 'Negative'
-            else:
-                market_sentiment = 'Neutral'
+            
+            market_sentiment = {
+                'positive': 'Positive',
+                'negative': 'Negative'
+            }.get(sentiment, 'Neutral')
 
             headlines_with_sentiment.append({
                 'index': idx,
-                'headline': headline,
+                'headline': entry.title,
                 'sentiment': market_sentiment,
                 'confidence': confidence
             })
-    else:
-        print("No news entries found.")
+        except Exception as e:
+            logging.error(f"Sentiment analysis failed for headline: {entry.title}. Error: {e}")
+            continue
+
     return headlines_with_sentiment
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET'])
 def index():
     selected_country = request.args.get('country', 'United States')
-    headlines = get_top_headlines_with_sentiment(selected_country)
+    headlines = get_top_headlines_with_sentiment(selected_country, page=1)  # Removed initial_load parameter
     current_year = datetime.now().year
     return render_template(
         'index.html',
@@ -83,6 +92,13 @@ def index():
         countries=COUNTRIES,
         selected_country=selected_country
     )
+
+@app.route('/load_more', methods=['GET'])
+def load_more():
+    page = int(request.args.get('page', 1))
+    selected_country = request.args.get('country', 'United States')
+    headlines = get_top_headlines_with_sentiment(selected_country, page=page)
+    return render_template('partials/headlines.html', headlines=headlines)
 
 if __name__ == "__main__":
     app.run(debug=True)
