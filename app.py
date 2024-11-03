@@ -34,26 +34,34 @@ COUNTRIES = {
 # Initialize the sentiment analysis pipeline with FinBERT globally
 classifier = pipeline('sentiment-analysis', model='ProsusAI/finbert')
 
-def get_top_headlines_with_sentiment(country_code, page=1, page_size=30):  # Changed from 20 to 30
-    cache_key = f"{country_code}"
-    
-    # Get or update feed cache
-    if cache_key not in feed_cache:
-        country_params = COUNTRIES.get(country_code, COUNTRIES['United States'])
-        gl, hl, ceid = country_params['gl'], country_params['hl'], country_params['ceid']
-        rss_url = f'https://news.google.com/rss?hl={hl}&gl={gl}&ceid={ceid}'
-        feed = feedparser.parse(rss_url)
-        if not feed.bozo and feed.entries:
-            feed_cache[cache_key] = feed.entries
-        else:
-            logging.error("Failed to parse RSS feed.")
-            return []
+def validate_country(country_code):
+    """Ensure the country code is valid."""
+    return country_code if country_code in COUNTRIES else 'United States'
 
-    entries = feed_cache[cache_key]
+def fetch_feed_entries(country_code):
+    """Fetch and parse RSS feed entries for the given country."""
+    country_params = COUNTRIES[country_code]
+    gl, hl, ceid = country_params['gl'], country_params['hl'], country_params['ceid']
+    rss_url = f'https://news.google.com/rss?hl={hl}&gl={gl}&ceid={ceid}'
+    feed = feedparser.parse(rss_url)
+    if not feed.bozo and feed.entries:
+        return feed.entries
+    else:
+        logging.error("Failed to parse RSS feed.")
+        return []
+
+def get_top_headlines_with_sentiment(country_code, page=1, page_size=30):
+    country_code = validate_country(country_code)
+    cache_key = country_code
+
+    if cache_key not in feed_cache:
+        feed_cache[cache_key] = fetch_feed_entries(country_code)
+
+    entries = feed_cache.get(cache_key, [])
     
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
-    
+
     if start_idx >= len(entries):
         return []
 
@@ -64,7 +72,6 @@ def get_top_headlines_with_sentiment(country_code, page=1, page_size=30):  # Cha
             result = classifier(entry.title)[0]
             sentiment = result['label']
             confidence = result['score']
-            
             market_sentiment = {
                 'positive': 'Positive',
                 'negative': 'Negative'
@@ -78,14 +85,13 @@ def get_top_headlines_with_sentiment(country_code, page=1, page_size=30):  # Cha
             })
         except Exception as e:
             logging.error(f"Sentiment analysis failed for headline: {entry.title}. Error: {e}")
-            continue
 
     return headlines_with_sentiment
 
 @app.route('/', methods=['GET'])
 def index():
-    selected_country = request.args.get('country', 'United States')
-    headlines = get_top_headlines_with_sentiment(selected_country, page=1)  # Removed initial_load parameter
+    selected_country = validate_country(request.args.get('country', 'United States'))
+    headlines = get_top_headlines_with_sentiment(selected_country, page=1)
     current_year = datetime.now().year
     return render_template(
         'index.html',
@@ -98,7 +104,7 @@ def index():
 @app.route('/load_more', methods=['GET'])
 def load_more():
     page = int(request.args.get('page', 1))
-    selected_country = request.args.get('country', 'United States')
+    selected_country = validate_country(request.args.get('country', 'United States'))
     headlines = get_top_headlines_with_sentiment(selected_country, page=page)
     return render_template('partials/headlines.html', headlines=headlines)
 

@@ -102,21 +102,20 @@
             document.getElementById('countryForm').submit();
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', () => {
             let page = 2;
             let loading = false;
             let hasMore = true;
             const tbody = document.querySelector('.table tbody');
-            
+            let scrollTimeout;
+
             const loadMore = () => {
                 if (loading || !hasMore) return;
                 loading = true;
-                
-                const xhr = new XMLHttpRequest();
-                xhr.open('GET', `/load_more?page=${page}&country=${document.getElementById('country').value}`, true);
-                xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        const content = xhr.responseText;
+
+                fetch(`/load_more?page=${page}&country=${encodeURIComponent(document.getElementById('country').value)}`)
+                    .then(response => response.text())
+                    .then(content => {
                         if (content.trim()) {
                             const temp = document.createElement('template');
                             temp.innerHTML = content;
@@ -130,17 +129,17 @@
                         } else {
                             hasMore = false;
                         }
-                    }
-                    loading = false;
-                };
-                xhr.send();
+                        loading = false;
+                    })
+                    .catch(() => {
+                        loading = false;
+                    });
             };
 
-            let scrollTimeout;
             window.addEventListener('scroll', () => {
                 if (scrollTimeout) clearTimeout(scrollTimeout);
                 scrollTimeout = setTimeout(() => {
-                    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 300) {  // Changed from 200 to 300
+                    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 300) {
                         loadMore();
                     }
                 }, 100);
