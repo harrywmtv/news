@@ -5,8 +5,10 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.serving import run_simple
 from datetime import datetime
 import logging
+import os
 
 app = Flask(__name__)
+app.config['DEBUG'] = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -101,7 +103,7 @@ def load_more():
     return render_template('partials/headlines.html', headlines=headlines)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host='0.0.0.0')  # Removed debug=True
 
 # For production with Gunicorn
 application = DispatcherMiddleware(
